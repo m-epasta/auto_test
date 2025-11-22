@@ -1,49 +1,163 @@
+use crate::config::Config;
 use crate::core::models::{ProjectInfo, TestFile, FunctionInfo, ParamInfo};
-use std::collections::HashMap;
+use crate::error::Result;
+use indicatif::{ProgressBar, ProgressStyle};
+use rayon::prelude::*;
+use std::path::Path;
+use std::sync::Arc;
 
+/// A generator for creating Rust integration tests from analyzed code.
+///
+/// This struct provides functionality to generate complete integration test files
+/// that can be used as starting points for testing Rust applications. The tests
+/// are organized by module and include proper imports and assertions.
 pub struct RustGenerator;
 
 impl RustGenerator {
-    /// Generate integration test files for all public functions.
-    /// Creates one test file per module with proper imports.
-    pub fn generate(project: &ProjectInfo) -> Vec<TestFile> {
-        // Group functions by their module path
-        let mut by_module: HashMap<String, Vec<&FunctionInfo>> = HashMap::new();
+    /// Generate integration test files for all public functions in a project with configuration.
+    ///
+    /// This is the main entry point that incorporates all enhancements:
+    /// - Configuration-driven behavior
+    /// - Parallel processing
+    /// - Progress reporting
+    /// - Enhanced error handling
+    ///
+    /// # Arguments
+    ///
+    /// * `project_path` - Path to the project root
+    /// * `config` - Configuration for generation behavior
+    ///
+    /// # Returns
+    ///
+    /// A result containing the generated test files or an error
+    pub fn generate_with_config(project_path: &Path, config: &Config) -> Result<Vec<TestFile>> {
+        eprintln!("Analyzing project with enhanced features...");
 
-        for func in &project.functions {
-            let module_path = Self::module_path_from_file(&func.file);
-            by_module.entry(module_path).or_default().push(func);
+        // Load and filter project info
+        let mut project = crate::core::analyzer::analyze_rust_project_filtered(project_path, config)?;
+        let total_functions = project.functions.len();
+
+        // Filter functions based on config
+        project.functions.retain(|f| !config.should_skip_function(&f.name));
+
+        if project.functions.is_empty() {
+            eprintln!("No functions to generate tests for after filtering.");
+            return Ok(Vec::new());
         }
 
-        // Generate one test file per module
-        by_module.into_iter().map(|(module_path, funcs)| {
-            let test_file_name = Self::test_file_name_from_module(&module_path);
-            let mut content = String::new();
+        eprintln!("Found {} functions to process (after filtering)", project.functions.len());
 
-            // Add package name import for integration tests
-            content.push_str("#[cfg(test)]\n");
-            content.push_str("mod tests {\n");
-            content.push_str("    use auto_test::*;\n\n");
+        let progress = Arc::new(ProgressBar::new(total_functions as u64));
+        progress.set_style(
+            ProgressStyle::with_template(
+                "{spinner:.green} [{elapsed_precise}] [{wide_bar:.cyan/blue}] {pos}/{len} ({eta}) - {msg}"
+            )
+            .unwrap()
+            .progress_chars("#>-")
+        );
 
-            // Add tokio if needed
-            let has_async = funcs.iter().any(|f| f.is_async);
-            if has_async {
-                content.push_str("    extern crate tokio;\n\n");
+        let config = Arc::new(config.clone());
+
+        // Process functions in parallel or sequentially based on config
+        let results: Vec<Result<TestFile>> = if config.parallel {
+            eprintln!("Using parallel processing with chunk size: {}", config.parallel_chunk_size);
+            progress.set_message("Generating tests in parallel...");
+
+            project.functions
+                .par_chunks(config.parallel_chunk_size)
+                .map(|chunk| {
+                    let chunk_config = Arc::clone(&config);
+                    Self::process_function_chunk(chunk.iter().collect::<Vec<_>>().as_slice(), &chunk_config)
+                })
+                .flatten()
+                .collect()
+        } else {
+            eprintln!("Using sequential processing");
+            progress.set_message("Generating tests...");
+
+            project.functions
+                .iter()
+                .map(|func| {
+                    progress.inc(1);
+                    Self::generate_test_for_func_with_config(func, &config)
+                })
+                .collect()
+        };
+
+        progress.finish_with_message("Processing complete");
+
+        // Collect successful results and log failures
+        let (successes, failures): (Vec<_>, Vec<_>) = results.into_iter().partition(Result::is_ok);
+        let test_files: Vec<TestFile> = successes.into_iter().map(Result::unwrap).collect();
+
+        if !failures.is_empty() {
+            eprintln!("Warning: {} functions failed to generate tests", failures.len());
+            for failure in failures {
+                if let Err(e) = failure {
+                    eprintln!("  - {}", e);
+                }
             }
+        }
 
-            // Generate test functions
-            for func in funcs {
-                content.push_str(&Self::render_test(func, &module_path));
-                content.push_str("\n");
-            }
+        eprintln!("Successfully generated {} test files", test_files.len());
+        Ok(test_files)
+    }
 
-            content.push_str("}\n");
+    /// Process a chunk of functions and return test files
+    fn process_function_chunk(functions: &[&FunctionInfo], config: &Config) -> Vec<Result<TestFile>> {
+        functions
+            .iter()
+            .map(|func| Self::generate_test_for_func_with_config(func, config))
+            .collect()
+    }
 
-            TestFile {
-                path: format!("tests/{}", test_file_name),
-                content,
-            }
-        }).collect()
+    /// Generate a test file for a single function with enhanced type handling
+    fn generate_test_for_func_with_config(func: &FunctionInfo, config: &Config) -> Result<TestFile> {
+        let module_path = Self::module_path_from_file(&func.file);
+        let test_file_name = Self::test_file_name_from_module(&module_path);
+
+        let mut content = String::new();
+
+        // Add package name import for integration tests
+        content.push_str("#[cfg(test)]\n");
+        content.push_str("mod tests {\n");
+        content.push_str("    use auto_test::*;\n\n");
+
+        // Add tokio if needed
+        let has_async = func.is_async;
+        if has_async {
+            content.push_str("    extern crate tokio;\n\n");
+        }
+
+        // Generate enhanced test function
+        let test_content = Self::render_test_enhanced(func, &module_path, config);
+        content.push_str(&test_content);
+        content.push('\n');
+        content.push_str("}\n");
+
+        Ok(TestFile {
+            path: format!("{}/{}", config.output_dir, test_file_name),
+            content,
+        })
+    }
+
+    // Legacy generate method for backward compatibility
+    pub fn generate(project: &ProjectInfo) -> Vec<TestFile> {
+        let config = Config::default();
+        let config = Arc::new(config);
+
+        project.functions
+            .iter()
+            .filter_map(|func| {
+                match Self::generate_test_for_func_with_config(func, &config) {
+                    Ok(test_file) => Some(test_file),
+                    Err(e) => {
+                        eprintln!("Warning: Failed to generate test for {}: {}", func.name, e);
+                        None
+                    }
+                }
+            })
+            .collect()
     }
 
     /// Generate integration tests that call the public library API
@@ -107,14 +221,120 @@ impl RustGenerator {
             // Add setup code if needed
             if value.contains('\n') {
                 arrange.push_str(&format!("        let {} = {};\n", param_name, value));
-                names.push(format!("{}", param_name));
+                names.push(param_name.to_string());
             } else {
                 arrange.push_str(&format!("        let {} = {};\n", param_name, value));
-                names.push(format!("{}", param_name));
+                names.push(param_name.to_string());
             }
         }
 
         (arrange, names.join(", "))
+    }
+
+    /// Generate enhanced test with better type support and parameter handling
+    fn render_test_enhanced(func: &FunctionInfo, module_path: &str, config: &Config) -> String {
+        let test_name = format!("test_{}_integration", func.name);
+
+        // For integration tests, call the public library function
+        let full_fn_path = "auto_test::generate_tests_for_project".to_string();
+
+        // Generate enhanced parameter setup
+        let (arrange_code, param_names) = Self::generate_params_enhanced(&func.params, config);
+
+        // Handle async
+        let (test_attr, await_suffix) = if func.is_async {
+            ("#[tokio::test]", ".await")
+        } else {
+            ("#[test]", "")
+        };
+
+        // Generate smart assertions based on return type
+        let assertions = Self::generate_assertions_enhanced(&func.returns, config);
+
+        format!(
+            "    {} fn {}() {{
+        // Arrange
+{}
+
+        // Act
+        let result = {}({}){};
+
+        // Assert
+{}
+    }}",
+            test_attr,
+            test_name,
+            arrange_code,
+            full_fn_path,
+            param_names,
+            await_suffix,
+            assertions
+        )
+    }
+
+    /// Generate enhanced parameter setup with better type support
+    fn generate_params_enhanced(params: &[ParamInfo], config: &Config) -> (String, String) {
+        if params.is_empty() {
+            return ("        let project_path = \"/tmp/test_project\";".to_string(),
+                    "project_path".to_string());
+        }
+
+        let mut arrange = String::new();
+        let mut names = Vec::new();
+
+        for (i, param) in params.iter().enumerate() {
+            let param_name = format!("param_{}", i);
+            let value = Self::generate_smart_value_enhanced(&param.typ, config);
+
+            // Add setup code
+            arrange.push_str(&format!("        let {} = {};\n", param_name, value));
+            names.push(param_name.to_string());
+        }
+
+        (arrange, names.join(", "))
+    }
+
+    /// Generate smart parameter values with enhanced type handling
+    fn generate_smart_value_enhanced(type_str: &str, config: &Config) -> String {
+        let type_str = type_str.trim();
+
+        // Check custom type mappings first
+        if let Some(mapped) = config.get_type_mapping(type_str) {
+            return mapped.clone();
+        }
+
+        // Path types
+        if type_str.contains("PathBuf") {
+            return "std::path::PathBuf::from(\".\")".to_string();
+        }
+
+        // UUID
+        if type_str.contains("Uuid") {
+            return "uuid::Uuid::new_v4()".to_string();
+        }
+
+        // URLs
+        if type_str.contains("Url") {
+            return "url::Url::parse(\"https://example.com\").unwrap()".to_string();
+        }
+
+        // Datetime
+        if type_str.contains("DateTime") {
+            return "chrono::Utc::now()".to_string();
+        }
+
+        // Custom structs with builder pattern
+        if type_str.chars().next().unwrap_or(' ').is_uppercase() {
+            // Check if it looks like a known type, otherwise use Default
+            if type_str.contains("Config") || type_str.contains("Args") {
+                format!("{}::default()", type_str)
+            } else {
+                format!("{}::default()", type_str)
+            }
+        } else {
+            // Existing logic for generic types
+            Self::param_value(type_str)
+        }
     }
 
     /// Generate smart parameter values with better type handling
@@ -128,6 +348,37 @@ impl RustGenerator {
 
         // Use existing param_value logic for common cases
         Self::param_value(typ)
+    }
+
+    /// Generate enhanced assertions with better type handling
+    fn generate_assertions_enhanced(return_type: &str, _config: &Config) -> String {
+        let t = return_type.trim();
+
+        if t == "()" {
+            "        // Function returns unit type - no assertion needed".to_string()
+        } else if t.starts_with("Result<") {
+            "        assert!(result.is_ok(), \"Function should succeed\");".to_string()
+        } else if t.starts_with("Option<") {
+            "        assert!(result.is_some(), \"Function should return Some value\");".to_string()
+        } else if t.starts_with("Vec<") {
+            "        assert!(!result.is_empty(), \"Function should return non-empty vector\");".to_string()
+        } else if ["String", "&str"].contains(&t) {
+            "        assert!(!result.is_empty(), \"Function should return non-empty string\");".to_string()
+        } else if ["i32", "i64", "u32", "u64", "usize"].iter().any(|&num| t.contains(num)) {
+            "        assert!(result >= 0, \"Function should return non-negative number\");".to_string()
+        } else if ["f32", "f64"].iter().any(|&num| t.contains(num)) {
+            "        assert!(!result.is_nan(), \"Function should return valid float\");".to_string()
+        } else if t == "bool" {
+            "        // Boolean result - add specific assertion based on expected behavior".to_string()
+        } else if t.contains("PathBuf") || t.contains("&Path") {
+            "        assert!(result.exists(), \"Function should return existing path\");".to_string()
+        } else if t.contains("Uuid") {
+            "        assert!(!result.is_nil(), \"Function should return valid UUID\");".to_string()
+        } else if t.contains("Url") {
+            "        assert!(result.scheme() != \"\", \"Function should return valid URL\");".to_string()
+        } else {
+            format!("        // TODO: Add appropriate assertion for type: {}", t)
+        }
     }
 
     /// Generate appropriate assertions based on return type

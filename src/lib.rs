@@ -23,6 +23,8 @@
 //!
 //! - `core`: Core analysis and generation logic (see [`core`] module)
 //! - `utils`: Utility functions for file I/O and filesystem operations
+//! - `config`: Configuration management (see [`config`] module)
+//! - `error`: Error types and handling (see [`error`] module)
 //!
 //! ## Features
 //!
@@ -31,7 +33,11 @@
 //! - **Integration Tests**: Generates tests that call your public API
 //! - **Modular Organization**: Creates separate test files per module
 //! - **CLI Tool**: Includes a command-line interface for easy usage
+//! - **Configuration System**: User-configurable behavior via config files
 //! - **Error Handling**: Comprehensive error propagation with helpful messages
+//! - **Progress Indicators**: Provides feedback during long operations
+//! - **Parallel Processing**: Fast generation on large codebases
+//! - **Git Integration**: Respects .gitignore and skips irrelevant files
 //!
 //! ## Limitations
 //!
@@ -39,37 +45,63 @@
 //! - TypeScript support is planned but not yet implemented
 //! - Complex custom types fall back to `Default::default()`
 //!
-//! See the [README](https://github.com/m-epasta/auto_test?tab=readme-ov-file) for more information.
+//! See the [README](https://github.com/yourusername/auto_test) for more information.
 
+pub mod cli;
+pub mod config;
 pub mod core;
+pub mod error;
 pub mod utils;
 
-/// Generate test files for a Rust project.
-/// 
+/// Generate test files for a Rust project with default configuration.
+///
 /// This is the main entry point for generating integration tests.
-/// Tests will be created in the `tests/` directory.
-/// 
+/// Tests will be created in the `tests/` directory with default settings.
+///
 /// # Example
-/// ```
+/// ```no_run
 /// use auto_test::generate_tests_for_project;
-/// 
+///
 /// generate_tests_for_project("./my_rust_project")?;
 /// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
 pub fn generate_tests_for_project(project_path: &str) -> Result<(), Box<dyn std::error::Error>> {
-    let analysis = core::analyzer::analyze_rust_project(project_path);
-    let test_files = core::generator::rust_gen::RustGenerator::generate(&analysis);
-    
-    println!("Analyzed project: {}", project_path);
-    println!("Found {} public functions across {} modules",
-             analysis.functions.len(),
-             test_files.len());
+    let project_path = std::path::Path::new(project_path);
+    let config = config::Config::load(project_path)?;
+    generate_tests_for_project_with_config(project_path, &config)
+}
+
+/// Generate test files for a Rust project with custom configuration.
+///
+/// This is the enhanced entry point that supports all configuration options.
+///
+/// # Arguments
+///
+/// * `project_path` - Path to the project root directory
+/// * `config` - Configuration for test generation behavior
+///
+/// # Returns
+///
+/// Success or an error if generation fails
+///
+/// # Example
+/// ```no_run
+/// use auto_test::{generate_tests_for_project_with_config, config::Config};
+///
+/// let config = Config::default();
+/// generate_tests_for_project_with_config("./my_project", &config)?;
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
+pub fn generate_tests_for_project_with_config(
+    project_path: &std::path::Path,
+    config: &config::Config,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let test_files = core::generator::rust_gen::RustGenerator::generate_with_config(project_path, config)?;
 
     for test_file in &test_files {
-        println!("Generated: {}", test_file.path);
+        eprintln!("Writing test file: {}", test_file.path);
         utils::fs::FsUtils::write_test_file(test_file)?;
     }
 
-    println!("Successfully generated {} test files", test_files.len());
     Ok(())
 }
