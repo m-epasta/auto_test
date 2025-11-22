@@ -1,7 +1,25 @@
 [package]
 name = "auto_test"
 version = "0.1.0"
-edition = "2024"
+edition = "2021"
+authors = ["m-e pasta <mepastacc@gmail.com>"]
+description = "Automatically generate test stubs for Rust projects using AST analysis"
+license = "MIT"
+readme = "README.md"
+# homepage = "https://github.com/m-epasta/auto_test"
+repository = "https://github.com/m-epasta/auto_test"
+# documentation = ""
+keywords = ["testing", "ast", "codegen", "rust", "automation"]
+categories = ["development-tools::testing", "development-tools::build-utils"]
+exclude = ["test.ts", "help.md", "*.lock", "*.ts"]
+
+[lib]
+name = "auto_test"
+path = "src/lib.rs"
+
+[[bin]]
+name = "auto_test"
+path = "src/main.rs"
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }

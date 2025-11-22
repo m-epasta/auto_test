@@ -2,6 +2,6 @@ mod cli;
 mod core;
 mod utils;
 
-fn main() {
-    cli::run();
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    cli::run()
 }

@@ -1,20 +1,27 @@
-use walkdir::WalkDir;
+use std::fs;
+use std::path::Path;
+use crate::core::models::TestFile;
 
-pub fn find_rust_files(root: &str) -> Vec<String> {
-    WalkDir::new(root)
-        .into_iter()
-        .filter_map(|e| e.ok())
-        .filter(|e| e.path().extension().map(|ext| ext == "rs").unwrap_or(false))
-        .map(|e| e.path().to_string_lossy().to_string())
-        .collect()
+pub struct FsUtils;
+
+impl FsUtils {
+    pub fn write_test_file(test: &TestFile) -> std::io::Result<()> {
+        let path = Path::new(&test.path);
+
+        if let Some(parent) = path.parent() {
+            if !parent.exists() {
+                fs::create_dir_all(parent)?;
+            }
+        }
+
+        fs::write(path, &test.content)?;
+        Ok(())
+    }
+
+    pub fn write_many(files: &[TestFile]) -> std::io::Result<()> {
+        for f in files {
+            Self::write_test_file(f)?;
+        }
+        Ok(())
+    }
 }
-
-pub fn find_ts_files(root: &str) -> Vec<String> {
-    WalkDir::new(root)
-        .into_iter()
-        .filter_map(|e| e.ok())
-        .filter(|e| e.path().extension().map(|ext| ext == "rs").unwrap_or(false))
-        .map(|e| e.path().to_string_lossy().to_string())
-        .collect()
-}
-
