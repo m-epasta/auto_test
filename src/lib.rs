@@ -87,9 +87,11 @@ pub fn generate_tests_for_project(project_path: &str) -> Result<(), Box<dyn std:
 /// # Example
 /// ```no_run
 /// use auto_test::{generate_tests_for_project_with_config, config::Config};
+/// use std::path::Path;
 ///
 /// let config = Config::default();
-/// generate_tests_for_project_with_config("./my_project", &config)?;
+/// let project_path = Path::new("./my_project");
+/// generate_tests_for_project_with_config(project_path, &config)?;
 /// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
 pub fn generate_tests_for_project_with_config(

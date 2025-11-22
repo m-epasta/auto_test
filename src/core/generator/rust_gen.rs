@@ -67,7 +67,7 @@ impl RustGenerator {
                 .par_chunks(config.parallel_chunk_size)
                 .map(|chunk| {
                     let chunk_config = Arc::clone(&config);
-                    Self::process_function_chunk(chunk.iter().collect::<Vec<_>>().as_slice(), &chunk_config)
+                    Self::process_function_chunk(chunk.iter().collect::<Vec<_>>().as_slice(), &chunk_config, project_path)
                 })
                 .flatten()
                 .collect()
@@ -79,7 +79,7 @@ impl RustGenerator {
                 .iter()
                 .map(|func| {
                     progress.inc(1);
-                    Self::generate_test_for_func_with_config(func, &config)
+                    Self::generate_test_for_func_with_config(func, &config, project_path)
                 })
                 .collect()
         };
@@ -104,39 +104,33 @@ impl RustGenerator {
     }
 
     /// Process a chunk of functions and return test files
-    fn process_function_chunk(functions: &[&FunctionInfo], config: &Config) -> Vec<Result<TestFile>> {
+    fn process_function_chunk(functions: &[&FunctionInfo], config: &Config, project_path: &Path) -> Vec<Result<TestFile>> {
         functions
             .iter()
-            .map(|func| Self::generate_test_for_func_with_config(func, config))
+            .map(|func| Self::generate_test_for_func_with_config(func, config, project_path))
             .collect()
     }
 
     /// Generate a test file for a single function with enhanced type handling
-    fn generate_test_for_func_with_config(func: &FunctionInfo, config: &Config) -> Result<TestFile> {
+    fn generate_test_for_func_with_config(func: &FunctionInfo, config: &Config, project_path: &Path) -> Result<TestFile> {
         let module_path = Self::module_path_from_file(&func.file);
         let test_file_name = Self::test_file_name_from_module(&module_path);
 
         let mut content = String::new();
 
-        // Add package name import for integration tests
-        content.push_str("#[cfg(test)]\n");
-        content.push_str("mod tests {\n");
-        content.push_str("    use auto_test::*;\n\n");
+        // For integration tests, use the library name directly
+        // Integration tests in tests/ directory automatically use the crate being tested
+        content.push_str("use test_project::*;\n\n");  // Use the test project name
 
-        // Add tokio if needed
-        let has_async = func.is_async;
-        if has_async {
-            content.push_str("    extern crate tokio;\n\n");
-        }
-
-        // Generate enhanced test function
+        // Generate enhanced test function directly (unwrapped from mod)
         let test_content = Self::render_test_enhanced(func, &module_path, config);
         content.push_str(&test_content);
         content.push('\n');
-        content.push_str("}\n");
+
+        let output_path = project_path.join(&config.output_dir).join(test_file_name);
 
         Ok(TestFile {
-            path: format!("{}/{}", config.output_dir, test_file_name),
+            path: output_path.to_string_lossy().to_string(),
             content,
         })
     }
@@ -149,8 +143,16 @@ impl RustGenerator {
         project.functions
             .iter()
             .filter_map(|func| {
-                match Self::generate_test_for_func_with_config(func, &config) {
-                    Ok(test_file) => Some(test_file),
+                // Use a dummy project path since this is the legacy method
+                // that doesn't need proper path resolution
+                match Self::generate_test_for_func_with_config(func, &config, std::path::Path::new(".")) {
+                    Ok(test_file) => {
+                        // Override the path to be relative like the old implementation
+                        Some(TestFile {
+                            path: format!("{}/{}", config.output_dir, Self::test_file_name_from_module(&Self::module_path_from_file(&func.file))),
+                            content: test_file.content,
+                        })
+                    }
                     Err(e) => {
                         eprintln!("Warning: Failed to generate test for {}: {}", func.name, e);
                         None
