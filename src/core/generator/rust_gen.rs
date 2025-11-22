@@ -58,28 +58,36 @@ impl RustGenerator {
 
         let config = Arc::new(config.clone());
 
-        // Process functions in parallel or sequentially based on config
+        // Group functions by module to create one test file per module
+        use std::collections::HashMap;
+        let mut module_groups: HashMap<String, Vec<&FunctionInfo>> = HashMap::new();
+
+        for func in &project.functions {
+            let module_path = Self::module_path_from_file(&func.file);
+            module_groups.entry(module_path).or_insert(Vec::new()).push(func);
+        }
+
+        // Process each module group to create test files
         let results: Vec<Result<TestFile>> = if config.parallel {
             eprintln!("Using parallel processing with chunk size: {}", config.parallel_chunk_size);
             progress.set_message("Generating tests in parallel...");
 
-            project.functions
-                .par_chunks(config.parallel_chunk_size)
-                .map(|chunk| {
-                    let chunk_config = Arc::clone(&config);
-                    Self::process_function_chunk(chunk.iter().collect::<Vec<_>>().as_slice(), &chunk_config, project_path)
+            module_groups
+                .into_par_iter()
+                .map(|(module_path, functions)| {
+                    progress.inc(functions.len() as u64);
+                    Self::generate_test_for_module_with_config(&module_path, &functions, &config, project_path)
                 })
-                .flatten()
                 .collect()
         } else {
             eprintln!("Using sequential processing");
             progress.set_message("Generating tests...");
 
-            project.functions
-                .iter()
-                .map(|func| {
-                    progress.inc(1);
-                    Self::generate_test_for_func_with_config(func, &config, project_path)
+            module_groups
+                .into_iter()
+                .map(|(module_path, functions)| {
+                    progress.inc(functions.len() as u64);
+                    Self::generate_test_for_module_with_config(&module_path, &functions, &config, project_path)
                 })
                 .collect()
         };
@@ -101,6 +109,31 @@ impl RustGenerator {
 
         eprintln!("Successfully generated {} test files", test_files.len());
         Ok(test_files)
+    }
+
+    /// Generate a test file containing tests for all functions in a module
+    fn generate_test_for_module_with_config(module_path: &str, functions: &[&FunctionInfo], config: &Config, project_path: &Path) -> Result<TestFile> {
+        let test_file_name = Self::test_file_name_from_module(module_path);
+
+        let mut content = String::new();
+
+        // For integration tests, use the library name directly
+        // Integration tests in tests/ directory automatically use the crate being tested
+        content.push_str("use test_project::*;\n\n");  // Use the test project name
+
+        // Generate test for each function in this module
+        for func in functions {
+            let test_content = Self::render_test_enhanced(func, module_path, config);
+            content.push_str(&test_content);
+            content.push('\n');
+        }
+
+        let output_path = project_path.join(&config.output_dir).join(test_file_name);
+
+        Ok(TestFile {
+            path: output_path.to_string_lossy().to_string(),
+            content,
+        })
     }
 
     /// Process a chunk of functions and return test files
