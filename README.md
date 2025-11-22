@@ -142,7 +142,7 @@ cargo build
 cargo test
 
 # Run on example project
-cargo run generate /path/to/example/project
+cargo run -- generate /path/to/example/project
 ```
 
 ## Contributing

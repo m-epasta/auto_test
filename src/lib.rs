@@ -39,7 +39,7 @@
 //! - TypeScript support is planned but not yet implemented
 //! - Complex custom types fall back to `Default::default()`
 //!
-//! See the [README](https://github.com/yourusername/auto_test) for more information.
+//! See the [README](https://github.com/m-epasta/auto_test?tab=readme-ov-file) for more information.
 
 pub mod core;
 pub mod utils;
