@@ -26,7 +26,7 @@ cargo install auto_test
 ### As a library dependency
 ```toml
 [dependencies]
-auto_test = "0.1"
+auto_test = "0.1.1"
 ```
 
 ## Usage
