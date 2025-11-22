@@ -84,7 +84,7 @@ impl FsUtils {
             .map_err(|e| AutoTestError::Io { source: e })?;
 
         // Atomically move temporary file to final location
-        temp_file.persist(&path)
+        temp_file.persist(path)
             .map_err(|e| AutoTestError::Io { source: e.into() })?;
 
         Ok(())

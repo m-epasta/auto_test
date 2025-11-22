@@ -125,8 +125,8 @@ pub fn get_items() -> Vec<String> {
     /// Test atomic file writing functionality specifically
     #[test]
     fn test_atomic_file_writing() {
-        use crate::utils::fs::FsUtils;
-        use crate::core::models::TestFile;
+        use auto_test::utils::fs::FsUtils;
+        use auto_test::core::models::TestFile;
 
         let temp_dir = TempDir::new().unwrap();
         let test_file = TestFile {
@@ -146,7 +146,7 @@ pub fn get_items() -> Vec<String> {
     /// Test memory optimization with string interning
     #[test]
     fn test_memory_optimization() {
-        use crate::core::models::TypeIntern;
+        use auto_test::core::models::TypeIntern;
 
         // Test that identical strings share the same allocation
         let type1 = TypeIntern::new("String");

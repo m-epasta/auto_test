@@ -175,7 +175,7 @@ pub fn analyze_rust_project_filtered(project_root: &Path, config: &Config) -> Re
         processed_files.insert(path_str.clone());
 
         // Analyze the file
-        match std::fs::read_to_string(&path) {
+        match std::fs::read_to_string(path) {
             Ok(content) => {
                 match syn::parse_file(&content) {
                     Ok(ast) => {

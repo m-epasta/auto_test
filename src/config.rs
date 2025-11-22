@@ -7,7 +7,6 @@ use crate::error::{AutoTestError, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::env;
 /// Enhanced hierarchical configuration for GitOps-style workflows.
 ///
 /// Supports cascading configuration sources with environment override capabilities:
@@ -216,6 +215,48 @@ impl Default for LegacyConfig {
     }
 }
 
+impl From<LegacyConfig> for Config {
+    fn from(legacy: LegacyConfig) -> Self {
+        Self {
+            // Use defaults for new hierarchical fields
+            project: ProjectConfig::default(),
+            generation: GenerationConfig {
+                strategy: "integration".to_string(),
+                output_dir: legacy.output_dir.clone(),
+                skip_functions: legacy.skip_functions.clone(),
+                custom_assertions: HashMap::new(),
+                timeout_seconds: legacy.timeout_seconds,
+                include_private: legacy.include_private,
+            },
+            types: TypeConfig {
+                mappings: legacy.type_mappings.clone(),
+                constructor_inference: true,
+                builder_detection: true,
+            },
+            performance: PerformanceConfig {
+                parallel: legacy.parallel,
+                parallel_chunk_size: legacy.parallel_chunk_size,
+                memory_limit_mb: None,
+                caching_enabled: false,
+            },
+            filesystem: FilesystemConfig {
+                respect_gitignore: legacy.respect_gitignore,
+                skip_patterns: legacy.skip_patterns.clone(),
+            },
+            // Legacy fields preserved
+            output_dir: legacy.output_dir,
+            skip_functions: legacy.skip_functions,
+            type_mappings: legacy.type_mappings,
+            include_private: legacy.include_private,
+            parallel: legacy.parallel,
+            parallel_chunk_size: legacy.parallel_chunk_size,
+            respect_gitignore: legacy.respect_gitignore,
+            skip_patterns: legacy.skip_patterns,
+            timeout_seconds: legacy.timeout_seconds,
+        }
+    }
+}
+
 impl Default for Config {
     fn default() -> Self {
         Self {
@@ -250,6 +291,8 @@ impl Config {
     /// 2. auto_test.yaml
     /// 3. Default configuration
     ///
+    /// Supports both legacy flat format and new hierarchical format.
+    ///
     /// # Arguments
     ///
     /// * `project_root` - Path to the project root directory
@@ -276,6 +319,9 @@ impl Config {
 
     /// Load configuration from a specific file path.
     ///
+    /// Handles both legacy flat format and new hierarchical format for
+    /// backward compatibility.
+    ///
     /// # Arguments
     ///
     /// * `path` - Path to the configuration file
@@ -290,20 +336,72 @@ impl Config {
                 source: e,
             })?;
 
-        match path.extension().and_then(|s| s.to_str()) {
+        let config = match path.extension().and_then(|s| s.to_str()) {
             Some("toml") => {
-                let config: Self = toml::from_str(&contents)
-                    .map_err(|e| AutoTestError::InvalidConfig { message: format!("TOML parse error: {}", e) })?;
-                Ok(config)
+                Self::load_toml_with_fallback(&contents)?
             }
             Some("yaml") | Some("yml") => {
-                let config: Self = serde_yaml::from_str(&contents)?;
-                Ok(config)
+                Self::load_yaml_with_fallback(&contents)?
             }
-            _ => Err(AutoTestError::InvalidConfig {
+            _ => return Err(AutoTestError::InvalidConfig {
                 message: "Unsupported configuration file format. Use .toml or .yaml".to_string(),
             }),
+        };
+
+        // Sync legacy fields with hierarchical structure
+        Ok(config.sync_legacy_fields())
+    }
+
+    /// Load TOML content, trying legacy first then upgrading to hierarchical format
+    fn load_toml_with_fallback(contents: &str) -> Result<Self> {
+        // Try legacy format first for backward compatibility
+        if let Ok(legacy) = toml::from_str::<LegacyConfig>(contents) {
+            return Ok(legacy.into());
         }
+
+        // Try hierarchical format for new configs
+        if let Ok(config) = toml::from_str::<Self>(contents) {
+            return Ok(config);
+        }
+
+        // Parse error
+        Err(AutoTestError::InvalidConfig {
+            message: "Invalid TOML configuration format".to_string(),
+        })
+    }
+
+    /// Load YAML content, trying legacy first then upgrading to hierarchical format
+    fn load_yaml_with_fallback(contents: &str) -> Result<Self> {
+        // Try legacy format first for backward compatibility
+        if let Ok(legacy) = serde_yaml::from_str::<LegacyConfig>(contents) {
+            return Ok(legacy.into());
+        }
+
+        // Try hierarchical format for new configs
+        if let Ok(config) = serde_yaml::from_str::<Self>(contents) {
+            return Ok(config);
+        }
+
+        // Parse error
+        Err(AutoTestError::InvalidConfig {
+            message: "Invalid YAML configuration format".to_string(),
+        })
+    }
+
+    /// Synchronize legacy fields to match hierarchical structure
+    fn sync_legacy_fields(mut self) -> Self {
+        // Copy from hierarchical to legacy fields for backward compatibility
+        self.output_dir = self.generation.output_dir.clone();
+        self.skip_functions = self.generation.skip_functions.clone();
+        self.type_mappings = self.types.mappings.clone();
+        self.include_private = self.generation.include_private;
+        self.parallel = self.performance.parallel;
+        self.parallel_chunk_size = self.performance.parallel_chunk_size;
+        self.respect_gitignore = self.filesystem.respect_gitignore;
+        self.skip_patterns = self.filesystem.skip_patterns.clone();
+        self.timeout_seconds = self.generation.timeout_seconds;
+
+        self
     }
 
     /// Save the current configuration to a TOML file.

@@ -5,7 +5,6 @@ use indicatif::{ProgressBar, ProgressStyle};
 use rayon::prelude::*;
 use std::path::Path;
 use std::sync::Arc;
-use tracing::{info, warn, debug, instrument};
 
 /// A generator for creating Rust integration tests from analyzed code.
 ///
