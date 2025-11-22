@@ -54,7 +54,7 @@ pub mod utils;
 /// use auto_test::generate_tests_for_project;
 /// 
 /// generate_tests_for_project("./my_rust_project")?;
-/// # Ok(())
+/// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
 pub fn generate_tests_for_project(project_path: &str) -> Result<(), Box<dyn std::error::Error>> {
     let analysis = core::analyzer::analyze_rust_project(project_path);
