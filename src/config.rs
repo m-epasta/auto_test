@@ -1,38 +1,230 @@
+//! # Configuration Management
+//!
+//! Advanced hierarchical configuration system supporting GitOps workflows
+//! and cascading configuration sources with environment variable overrides.
+
 use crate::error::{AutoTestError, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-
-/// Configuration for AutoTest behavior.
+use std::env;
+/// Enhanced hierarchical configuration for GitOps-style workflows.
 ///
-/// This struct defines all user-configurable options for test generation.
-/// It can be loaded from `auto_test.toml` or `auto_test.yaml` files.
+/// Supports cascading configuration sources with environment override capabilities:
+/// 1. Global user config (~/.config/auto_test/{config.toml,yaml})
+/// 2. Project-specific config ({project}/.auto_test.{toml,yaml})
+/// 3. Environment variables (AUTO_TEST_*)
+/// 4. Inline overrides via CLI flags
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(default)]
 pub struct Config {
-    /// Directory where generated tests will be written
+    /// Project metadata for GitOps workflows
+    #[serde(rename = "project")]
+    pub project: ProjectConfig,
+
+    /// Generation strategy and behavior
+    #[serde(rename = "generation")]
+    pub generation: GenerationConfig,
+
+    /// Type-safe parameter generation
+    #[serde(rename = "types")]
+    pub types: TypeConfig,
+
+    /// Performance and execution control
+    #[serde(rename = "performance")]
+    pub performance: PerformanceConfig,
+
+    /// File discovery and filtering
+    #[serde(rename = "filesystem")]
+    pub filesystem: FilesystemConfig,
+
+    // Legacy fields for backward compatibility
+    #[serde(skip)]
     pub output_dir: String,
-    /// Functions to skip during test generation
+    #[serde(skip)]
     pub skip_functions: Vec<String>,
-    /// Custom type mappings for parameter generation
+    #[serde(skip)]
     pub type_mappings: HashMap<String, String>,
-    /// Whether to include private functions in generation
+    #[serde(skip)]
     pub include_private: bool,
-    /// Whether to use parallel processing
+    #[serde(skip)]
     pub parallel: bool,
-    /// Maximum number of functions to process in parallel
+    #[serde(skip)]
     pub parallel_chunk_size: usize,
-    /// Whether to respect .gitignore patterns
+    #[serde(skip)]
+    pub respect_gitignore: bool,
+    #[serde(skip)]
+    pub skip_patterns: Vec<String>,
+    #[serde(skip)]
+    pub timeout_seconds: u64,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(default)]
+pub struct ProjectConfig {
+    /// Project name for telemetry and caching
+    pub name: Option<String>,
+    /// Baseline branch for incremental generation
+    pub baseline_branch: Option<String>,
+    /// Version for compatibility checking
+    pub version: Option<String>,
+}
+
+impl Default for ProjectConfig {
+    fn default() -> Self {
+        Self {
+            name: None,
+            baseline_branch: Some("main".to_string()),
+            version: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(default)]
+pub struct GenerationConfig {
+    /// Test generation strategy: "integration", "unit", "property"
+    pub strategy: String,
+    /// Directory where generated tests are written
+    pub output_dir: String,
+    /// Functions to skip during generation (patterns)
+    pub skip_functions: Vec<String>,
+    /// Custom assertion patterns for types
+    pub custom_assertions: HashMap<String, String>,
+    /// Timeout in seconds for individual operations
+    pub timeout_seconds: u64,
+    /// Whether to include private functions
+    pub include_private: bool,
+}
+
+impl Default for GenerationConfig {
+    fn default() -> Self {
+        Self {
+            strategy: "integration".to_string(),
+            output_dir: "tests".to_string(),
+            skip_functions: Vec::new(),
+            custom_assertions: HashMap::new(),
+            timeout_seconds: 300,
+            include_private: false,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(default)]
+pub struct TypeConfig {
+    /// Custom type constructors and mappings
+    pub mappings: HashMap<String, String>,
+    /// Constructor inference strategies
+    pub constructor_inference: bool,
+    /// Builder pattern detection
+    pub builder_detection: bool,
+}
+
+impl Default for TypeConfig {
+    fn default() -> Self {
+        let mut mappings = HashMap::new();
+        mappings.insert("PathBuf".to_string(), "std::path::PathBuf::from(\".\")".to_string());
+        mappings.insert("Uuid".to_string(), "uuid::Uuid::new_v4()".to_string());
+
+        Self {
+            mappings,
+            constructor_inference: true,
+            builder_detection: true,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(default)]
+pub struct PerformanceConfig {
+    /// Parallel processing enablement
+    pub parallel: bool,
+    /// Maximum functions processed in parallel
+    pub parallel_chunk_size: usize,
+    /// Memory limit in MB for bounded processing
+    pub memory_limit_mb: Option<usize>,
+    /// Enable result caching
+    pub caching_enabled: bool,
+}
+
+impl Default for PerformanceConfig {
+    fn default() -> Self {
+        Self {
+            parallel: true,
+            parallel_chunk_size: 25,
+            memory_limit_mb: None,
+            caching_enabled: false,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(default)]
+pub struct FilesystemConfig {
+    /// Respect .gitignore patterns
     pub respect_gitignore: bool,
     /// Additional file patterns to skip
     pub skip_patterns: Vec<String>,
-    /// Timeout in seconds for individual operations
+}
+
+impl Default for FilesystemConfig {
+    fn default() -> Self {
+        Self {
+            respect_gitignore: true,
+            skip_patterns: vec![
+                "**/target/**".to_string(),
+                "**/.git/**".to_string(),
+                "**/node_modules/**".to_string(),
+            ],
+        }
+    }
+}
+
+// Legacy fields for backward compatibility
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(default)]
+pub struct LegacyConfig {
+    pub output_dir: String,
+    pub skip_functions: Vec<String>,
+    pub type_mappings: HashMap<String, String>,
+    pub include_private: bool,
+    pub parallel: bool,
+    pub parallel_chunk_size: usize,
+    pub respect_gitignore: bool,
+    pub skip_patterns: Vec<String>,
     pub timeout_seconds: u64,
+}
+
+impl Default for LegacyConfig {
+    fn default() -> Self {
+        Self {
+            output_dir: "tests".to_string(),
+            skip_functions: Vec::new(),
+            type_mappings: HashMap::new(),
+            include_private: false,
+            parallel: true,
+            parallel_chunk_size: 25,
+            respect_gitignore: true,
+            skip_patterns: vec![
+                "**/target/**".to_string(),
+                "**/.git/**".to_string(),
+                "**/node_modules/**".to_string(),
+            ],
+            timeout_seconds: 300,
+        }
+    }
 }
 
 impl Default for Config {
     fn default() -> Self {
         Self {
+            project: ProjectConfig::default(),
+            generation: GenerationConfig::default(),
+            types: TypeConfig::default(),
+            performance: PerformanceConfig::default(),
+            filesystem: FilesystemConfig::default(),
+            // Legacy fields
             output_dir: "tests".to_string(),
             skip_functions: Vec::new(),
             type_mappings: HashMap::new(),

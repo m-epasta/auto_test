@@ -1,0 +1,15 @@
+[package]
+name = "auto_test_integration_tests"
+version = "0.1.0"
+edition = "2021"
+
+# Integration test binary with separate dependencies
+# This allows us to test the end-to-end functionality without
+# circular dependencies and with specific test setup
+
+[dependencies]
+auto_test = { path = "../" }
+tempfile = "3.9"
+assert_cmd = "2.0"
+predicates = "3.0"
+serde_json = "1.0"

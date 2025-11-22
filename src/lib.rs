@@ -100,7 +100,7 @@ pub fn generate_tests_for_project_with_config(
 
     for test_file in &test_files {
         eprintln!("Writing test file: {}", test_file.path);
-        utils::fs::FsUtils::write_test_file(test_file)?;
+        utils::fs::FsUtils::write_test_file_atomic(test_file)?;
     }
 
     Ok(())

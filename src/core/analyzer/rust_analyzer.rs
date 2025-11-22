@@ -6,7 +6,7 @@ use ignore::WalkBuilder;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use crate::config::Config;
-use crate::core::models::{FunctionInfo, ParamInfo, ProjectInfo};
+use crate::core::models::{FunctionInfo, ParamInfo, ProjectInfo, TypeIntern};
 use crate::error::Result;
 
 /// Analyze a single Rust file and return public functions with parameters & return types.
@@ -40,21 +40,21 @@ pub fn analyze_rust_file(file_path: &str) -> Vec<FunctionInfo> {
                             Pat::Ident(ident) => ident.ident.to_string(),
                             _ => "_".to_string(),
                         };
-                        // extract type as token string
-                        let typ = match &*pat_type.ty {
+                        // extract type as token string with interning
+                        let typ_str = match &*pat_type.ty {
                             Type::Reference(r) => {
                                 // keep the & prefix for reference types
                                 format!("&{}", r.elem.to_token_stream())
                             }
                             other => other.to_token_stream().to_string(),
                         };
-                        params.push(ParamInfo { name, typ });
+                        params.push(ParamInfo { name, typ: TypeIntern::new(&typ_str) });
                     }
                 }
             }
 
-            // return type
-            let returns = match &func.sig.output {
+            // return type with interning
+            let returns_str = match &func.sig.output {
                 syn::ReturnType::Default => "()".to_string(),
                 syn::ReturnType::Type(_, ty) => ty.to_token_stream().to_string(),
             };
@@ -62,7 +62,7 @@ pub fn analyze_rust_file(file_path: &str) -> Vec<FunctionInfo> {
             functions.push(FunctionInfo {
                 name: func.sig.ident.to_string(),
                 params,
-                returns,
+                returns: TypeIntern::new(&returns_str),
                 file: file_path.to_string(),
                 is_async: func.sig.asyncness.is_some(),
             });
@@ -236,20 +236,20 @@ fn extract_functions_from_ast(ast: &File, file_path: &str, config: &Config) -> V
                             _ => "_".to_string(),
                         };
 
-                        let typ = match &*pat_type.ty {
+                        let typ_str = match &*pat_type.ty {
                             Type::Reference(r) => {
                                 format!("&{}", r.elem.to_token_stream())
                             }
                             other => other.to_token_stream().to_string(),
                         };
 
-                        params.push(ParamInfo { name, typ });
+                        params.push(ParamInfo { name, typ: TypeIntern::new(&typ_str) });
                     }
                 }
             }
 
-            // Extract return type
-            let returns = match &func.sig.output {
+            // Extract return type with interning
+            let returns_str = match &func.sig.output {
                 syn::ReturnType::Default => "()".to_string(),
                 syn::ReturnType::Type(_, ty) => ty.to_token_stream().to_string(),
             };
@@ -257,7 +257,7 @@ fn extract_functions_from_ast(ast: &File, file_path: &str, config: &Config) -> V
             functions.push(FunctionInfo {
                 name: func_name,
                 params,
-                returns,
+                returns: TypeIntern::new(&returns_str),
                 file: file_path.to_string(),
                 is_async: func.sig.asyncness.is_some(),
             });

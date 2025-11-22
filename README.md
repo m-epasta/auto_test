@@ -44,6 +44,54 @@ cd /path/to/your/rust/project
 auto_test generate .
 ```
 
+### Configuration
+
+AutoTest supports advanced hierarchical configuration for enterprise workflows. Create an `.auto_test.toml` or `.auto_test.yaml` file in your project root:
+
+```toml
+# Project metadata for GitOps workflows
+[project]
+name = "my_service"
+baseline_branch = "main"
+
+# Generation strategy and behavior
+[generation]
+strategy = "integration"  # "integration", "unit", or "property"
+output_dir = "tests"
+skip_functions = ["internal_", "test_"]
+timeout_seconds = 120
+
+# Custom assertion patterns
+[generation.custom_assertions]
+"MyResult" = "assert_matches!(result, MyResult::Ok(_))"
+"MyError" = "assert!(result.is_err())"
+
+# Type-safe parameter generation
+[types]
+constructor_inference = true
+builder_detection = true
+
+[types.mappings]
+"MyDomainType" = "MyDomainType::builder().build()"
+"ComplexType" = "ComplexType::new(\"default\")"
+
+# Performance and execution control
+[performance]
+parallel = true
+parallel_chunk_size = 25
+memory_limit_mb = 512
+caching_enabled = false
+
+# File discovery and filtering
+[filesystem]
+respect_gitignore = true
+skip_patterns = [
+    "**/target/**",
+    "**/node_modules/**",
+    "**/dist/**"
+]
+```
+
 ### Library API
 
 ```rust
@@ -101,57 +149,34 @@ mod tests {
 
 ## How It Works
 
-1. **Analysis**: Uses `syn` to parse Rust source files and extract public function signatures
+1. **Analysis**: Parses Rust source code to extract public function signatures
 2. **Type Inference**: Analyzes parameter types and return values
 3. **Test Generation**: Creates integration tests with appropriate setup and assertions
 4. **Organization**: Groups tests by module for maintainability
 
 ## Supported Types
 
-The tool generates test parameters for:
-- **Primitives**: `String`, `&str`, `i32`, `u64`, `bool`, etc.
-- **Containers**: `Vec<T>`, `Option<T>`, `Result<T, E>`
-- **References**: `&T`, `&mut T`
-- **Custom Types**: Falls back to `Default::default()` for unknown structs
+AutoTest generates test parameters for common Rust types:
+- **Primitives**: `String`, `&str`, `i32`, `u64`, `bool`, and other primitive types
+- **Collections**: `Vec<T>`, `Option<T>`, and other standard library types
+- **References**: `&T`, `&mut T` reference types
+- **Custom Types**: Falls back to `Default::default()` for complex structs
 
 ## Supported Assertions
 
-Different assertion strategies based on return types:
-- `Result<T, E>` → `assert!(result.is_ok())`
-- `Option<T>` → `assert!(result.is_some())`
-- `Vec<T>` → `assert!(!result.is_empty())`
-- `String/&str` → `assert!(!result.is_empty())`
-- Numbers → `assert!(result >= 0)`
+AutoTest generates appropriate assertions based on return types:
+- `Result<T, E>` → Checks for successful operation
+- `Option<T>` → Ensures value is present
+- `Vec<T>` → Verifies collection is not empty
+- `String/&str` → Confirms content is not empty
+- Numbers → Validates expected value ranges
 
 ## Limitations
 
-- **Public functions only**: Currently analyzes only `pub` functions
-- **Rust only**: No TypeScript support yet (planned)
-- **Basic parameters**: Complex custom types use `Default::default()`
-- **Integration tests**: Currently generates integration-style tests only
-
-## Development
-
-```bash
-# Clone and build
-git clone https://github.com/yourusername/auto_test.git
-cd auto_test
-cargo build
-
-# Run tests
-cargo test
-
-# Run on example project
-cargo run -- generate /path/to/example/project
-```
-
-## Contributing
-
-Contributions are welcome! Please feel free to:
-- Report bugs and issues
-- Suggest new features
-- Submit pull requests
-- Improve documentation
+- Analyzes only public functions by design
+- Currently supports Rust only
+- Complex custom types use default values
+- Generates integration-style tests
 
 ## License
 

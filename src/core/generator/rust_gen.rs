@@ -5,6 +5,7 @@ use indicatif::{ProgressBar, ProgressStyle};
 use rayon::prelude::*;
 use std::path::Path;
 use std::sync::Arc;
+use tracing::{info, warn, debug, instrument};
 
 /// A generator for creating Rust integration tests from analyzed code.
 ///
@@ -216,7 +217,7 @@ impl RustGenerator {
 
         for (i, param) in params.iter().enumerate() {
             let param_name = format!("param_{}", i);
-            let value = Self::smart_param_value(&param.typ, &param_name);
+            let value = Self::smart_param_value(param.typ.as_str(), &param_name);
 
             // Add setup code if needed
             if value.contains('\n') {
@@ -249,7 +250,7 @@ impl RustGenerator {
         };
 
         // Generate smart assertions based on return type
-        let assertions = Self::generate_assertions_enhanced(&func.returns, config);
+        let assertions = Self::generate_assertions_enhanced(func.returns.as_str(), config);
 
         format!(
             "    {} fn {}() {{
@@ -284,7 +285,7 @@ impl RustGenerator {
 
         for (i, param) in params.iter().enumerate() {
             let param_name = format!("param_{}", i);
-            let value = Self::generate_smart_value_enhanced(&param.typ, config);
+            let value = Self::generate_smart_value_enhanced(param.typ.as_str(), config);
 
             // Add setup code
             arrange.push_str(&format!("        let {} = {};\n", param_name, value));
