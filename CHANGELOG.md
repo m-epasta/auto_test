@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.1] - 2025-11-22
+
+### Added
+- Enhanced type support for common libraries (UUID, URL, chrono DateTime)
+- Improved parameter generation for generic types and collections
+- Better assertion generation with more specific Result/Option handling
+- Documentation improvements and examples
+
+### Fixed
+- Cleaned up unused code warnings in generated output
+- Minor improvements to error message clarity
+
 ## [0.1.0] - 2025-11-22
 
 ### Added
