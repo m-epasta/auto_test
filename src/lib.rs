@@ -98,11 +98,55 @@ pub fn generate_tests_for_project_with_config(
     project_path: &std::path::Path,
     config: &config::Config,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let test_files = core::generator::rust_gen::RustGenerator::generate_with_config(project_path, config)?;
+    let test_files =
+        core::generator::rust_gen::RustGenerator::generate_with_config(project_path, config)?;
 
     for test_file in &test_files {
         eprintln!("Writing test file: {}", test_file.path);
         utils::fs::FsUtils::write_test_file_atomic(test_file)?;
+    }
+
+    // V Language Support
+    use std::fs;
+    use walkdir::WalkDir;
+
+    for entry in WalkDir::new(project_path)
+        .into_iter()
+        .filter_map(|e| e.ok())
+    {
+        let path = entry.path();
+        if path.extension().and_then(|s| s.to_str()) == Some("v") {
+            // Skip test files
+            if path
+                .file_name()
+                .and_then(|s| s.to_str())
+                .map(|s| s.ends_with("_test.v"))
+                .unwrap_or(false)
+            {
+                continue;
+            }
+
+            let content = fs::read_to_string(path)?;
+            let functions = core::v_lang::VParser::parse_function_signatures(&content);
+
+            if !functions.is_empty() {
+                let mut test_content = String::from("module main\n\n");
+                for func in functions {
+                    test_content.push_str(&core::v_lang::VParser::generate_test(&func));
+                    test_content.push('\n');
+                }
+
+                let file_stem = path
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("unknown");
+                let test_file_name = format!("{}_test.v", file_stem);
+                let test_file_path = path.parent().unwrap().join(&test_file_name);
+
+                eprintln!("Writing V test file: {:?}", test_file_path);
+                fs::write(test_file_path, test_content)?;
+            }
+        }
     }
 
     Ok(())

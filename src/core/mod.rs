@@ -13,3 +13,4 @@
 pub mod analyzer;
 pub mod models;
 pub mod generator;
+pub mod v_lang;
