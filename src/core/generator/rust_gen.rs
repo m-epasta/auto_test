@@ -1,5 +1,5 @@
 use crate::config::Config;
-use crate::core::models::{ProjectInfo, TestFile, FunctionInfo, ParamInfo};
+use crate::core::models::{FunctionInfo, ParamInfo, ProjectInfo, TestFile};
 use crate::error::Result;
 use indicatif::{ProgressBar, ProgressStyle};
 use rayon::prelude::*;
@@ -34,18 +34,24 @@ impl RustGenerator {
         eprintln!("Analyzing project with enhanced features...");
 
         // Load and filter project info
-        let mut project = crate::core::analyzer::analyze_rust_project_filtered(project_path, config)?;
+        let mut project =
+            crate::core::analyzer::analyze_rust_project_filtered(project_path, config)?;
         let total_functions = project.functions.len();
 
         // Filter functions based on config
-        project.functions.retain(|f| !config.should_skip_function(&f.name));
+        project
+            .functions
+            .retain(|f| !config.should_skip_function(&f.name));
 
         if project.functions.is_empty() {
             eprintln!("No functions to generate tests for after filtering.");
             return Ok(Vec::new());
         }
 
-        eprintln!("Found {} functions to process (after filtering)", project.functions.len());
+        eprintln!(
+            "Found {} functions to process (after filtering)",
+            project.functions.len()
+        );
 
         let progress = Arc::new(ProgressBar::new(total_functions as u64));
         progress.set_style(
@@ -64,19 +70,30 @@ impl RustGenerator {
 
         for func in &project.functions {
             let module_path = Self::module_path_from_file(&func.file);
-            module_groups.entry(module_path).or_insert(Vec::new()).push(func);
+            module_groups
+                .entry(module_path)
+                .or_insert(Vec::new())
+                .push(func);
         }
 
         // Process each module group to create test files
         let results: Vec<Result<TestFile>> = if config.parallel {
-            eprintln!("Using parallel processing with chunk size: {}", config.parallel_chunk_size);
+            eprintln!(
+                "Using parallel processing with chunk size: {}",
+                config.parallel_chunk_size
+            );
             progress.set_message("Generating tests in parallel...");
 
             module_groups
                 .into_par_iter()
                 .map(|(module_path, functions)| {
                     progress.inc(functions.len() as u64);
-                    Self::generate_test_for_module_with_config(&module_path, &functions, &config, project_path)
+                    Self::generate_test_for_module_with_config(
+                        &module_path,
+                        &functions,
+                        &config,
+                        project_path,
+                    )
                 })
                 .collect()
         } else {
@@ -87,7 +104,12 @@ impl RustGenerator {
                 .into_iter()
                 .map(|(module_path, functions)| {
                     progress.inc(functions.len() as u64);
-                    Self::generate_test_for_module_with_config(&module_path, &functions, &config, project_path)
+                    Self::generate_test_for_module_with_config(
+                        &module_path,
+                        &functions,
+                        &config,
+                        project_path,
+                    )
                 })
                 .collect()
         };
@@ -99,7 +121,10 @@ impl RustGenerator {
         let test_files: Vec<TestFile> = successes.into_iter().map(Result::unwrap).collect();
 
         if !failures.is_empty() {
-            eprintln!("Warning: {} functions failed to generate tests", failures.len());
+            eprintln!(
+                "Warning: {} functions failed to generate tests",
+                failures.len()
+            );
             for failure in failures {
                 if let Err(e) = failure {
                     eprintln!("  - {}", e);
@@ -112,14 +137,19 @@ impl RustGenerator {
     }
 
     /// Generate a test file containing tests for all functions in a module
-    fn generate_test_for_module_with_config(module_path: &str, functions: &[&FunctionInfo], config: &Config, project_path: &Path) -> Result<TestFile> {
+    fn generate_test_for_module_with_config(
+        module_path: &str,
+        functions: &[&FunctionInfo],
+        config: &Config,
+        project_path: &Path,
+    ) -> Result<TestFile> {
         let test_file_name = Self::test_file_name_from_module(module_path);
 
         let mut content = String::new();
 
         // For integration tests, use the library name directly
         // Integration tests in tests/ directory automatically use the crate being tested
-        content.push_str("use test_project::*;\n\n");  // Use the test project name
+        content.push_str("use test_project::*;\n\n"); // Use the test project name
 
         // Generate test for each function in this module
         for func in functions {
@@ -137,7 +167,13 @@ impl RustGenerator {
     }
 
     /// Process a chunk of functions and return test files
-    fn process_function_chunk(functions: &[&FunctionInfo], config: &Config, project_path: &Path) -> Vec<Result<TestFile>> {
+    /// Alternative implementation for batch processing - kept for future extensibility
+    #[allow(dead_code)]
+    fn process_function_chunk(
+        functions: &[&FunctionInfo],
+        config: &Config,
+        project_path: &Path,
+    ) -> Vec<Result<TestFile>> {
         functions
             .iter()
             .map(|func| Self::generate_test_for_func_with_config(func, config, project_path))
@@ -145,7 +181,11 @@ impl RustGenerator {
     }
 
     /// Generate a test file for a single function with enhanced type handling
-    fn generate_test_for_func_with_config(func: &FunctionInfo, config: &Config, project_path: &Path) -> Result<TestFile> {
+    fn generate_test_for_func_with_config(
+        func: &FunctionInfo,
+        config: &Config,
+        project_path: &Path,
+    ) -> Result<TestFile> {
         let module_path = Self::module_path_from_file(&func.file);
         let test_file_name = Self::test_file_name_from_module(&module_path);
 
@@ -153,7 +193,7 @@ impl RustGenerator {
 
         // For integration tests, use the library name directly
         // Integration tests in tests/ directory automatically use the crate being tested
-        content.push_str("use test_project::*;\n\n");  // Use the test project name
+        content.push_str("use test_project::*;\n\n"); // Use the test project name
 
         // Generate enhanced test function directly (unwrapped from mod)
         let test_content = Self::render_test_enhanced(func, &module_path, config);
@@ -173,16 +213,27 @@ impl RustGenerator {
         let config = Config::default();
         let config = Arc::new(config);
 
-        project.functions
+        project
+            .functions
             .iter()
             .filter_map(|func| {
                 // Use a dummy project path since this is the legacy method
                 // that doesn't need proper path resolution
-                match Self::generate_test_for_func_with_config(func, &config, std::path::Path::new(".")) {
+                match Self::generate_test_for_func_with_config(
+                    func,
+                    &config,
+                    std::path::Path::new("."),
+                ) {
                     Ok(test_file) => {
                         // Override the path to be relative like the old implementation
                         Some(TestFile {
-                            path: format!("{}/{}", config.output_dir, Self::test_file_name_from_module(&Self::module_path_from_file(&func.file))),
+                            path: format!(
+                                "{}/{}",
+                                config.output_dir,
+                                Self::test_file_name_from_module(&Self::module_path_from_file(
+                                    &func.file
+                                ))
+                            ),
                             content: test_file.content,
                         })
                     }
@@ -197,6 +248,8 @@ impl RustGenerator {
 
     /// Generate integration tests that call the public library API
     /// instead of internal implementation details
+    /// Alternative implementation - kept for backward compatibility
+    #[allow(dead_code)]
     fn render_test(func: &FunctionInfo, module_path: &str) -> String {
         let test_name = format!("test_{}_integration", func.name);
 
@@ -209,7 +262,8 @@ impl RustGenerator {
         };
 
         // For integration tests, we test with temp directories
-        let arrange_code = "        // Create a temporary directory or use test fixtures".to_string();
+        let arrange_code =
+            "        // Create a temporary directory or use test fixtures".to_string();
         let param_names = r#""/tmp/test_project""#.to_string();
 
         // Handle async (library function isn't async currently)
@@ -217,7 +271,8 @@ impl RustGenerator {
 
         // Integration tests check for success/result
         let assertions = "        // Verify that test generation succeeded
-        assert!(result.is_ok());".to_string();
+        assert!(result.is_ok());"
+            .to_string();
 
         format!(
             "    {} fn {}() {{
@@ -230,13 +285,7 @@ impl RustGenerator {
         // Assert
 {}
     }}",
-            test_attr,
-            test_name,
-            arrange_code,
-            full_fn_path,
-            param_names,
-            await_suffix,
-            assertions
+            test_attr, test_name, arrange_code, full_fn_path, param_names, await_suffix, assertions
         )
     }
 
@@ -267,7 +316,7 @@ impl RustGenerator {
     }
 
     /// Generate enhanced test with better type support and parameter handling
-    fn render_test_enhanced(func: &FunctionInfo, module_path: &str, config: &Config) -> String {
+    fn render_test_enhanced(func: &FunctionInfo, _module_path: &str, config: &Config) -> String {
         let test_name = format!("test_{}_integration", func.name);
 
         // For integration tests, call the public library function
@@ -297,36 +346,36 @@ impl RustGenerator {
         // Assert
 {}
     }}",
-            test_attr,
-            test_name,
-            arrange_code,
-            full_fn_path,
-            param_names,
-            await_suffix,
-            assertions
+            test_attr, test_name, arrange_code, full_fn_path, param_names, await_suffix, assertions
         )
     }
 
     /// Generate enhanced parameter setup with better type support
     fn generate_params_enhanced(params: &[ParamInfo], config: &Config) -> (String, String) {
         if params.is_empty() {
-            return ("        let project_path = \"/tmp/test_project\";".to_string(),
-                    "project_path".to_string());
+            return (
+                "        let project_path = \"/tmp/test_project\";".to_string(),
+                "project_path".to_string(),
+            );
         }
 
-        let mut arrange = String::new();
-        let mut names = Vec::new();
+        // Delegate to base generate_params, then enhance values with config
+        let (_base_arrange, base_names) = Self::generate_params(params);
+
+        // Enhance values based on config if needed
+        let mut enhanced_arrange = String::new();
+        let names_vec: Vec<_> = base_names.split(", ").collect();
 
         for (i, param) in params.iter().enumerate() {
-            let param_name = format!("param_{}", i);
-            let value = Self::generate_smart_value_enhanced(param.typ.as_str(), config);
-
-            // Add setup code
-            arrange.push_str(&format!("        let {} = {};\n", param_name, value));
-            names.push(param_name.to_string());
+            let param_name = names_vec.get(i).unwrap_or(&"param");
+            let enhanced_value = Self::generate_smart_value_enhanced(param.typ.as_str(), config);
+            enhanced_arrange.push_str(&format!(
+                "        let {} = {};\\n",
+                param_name, enhanced_value
+            ));
         }
 
-        (arrange, names.join(", "))
+        (enhanced_arrange, base_names)
     }
 
     /// Generate smart parameter values with enhanced type handling
@@ -358,18 +407,14 @@ impl RustGenerator {
             return "chrono::Utc::now()".to_string();
         }
 
-        // Custom structs with builder pattern
-        if type_str.chars().next().unwrap_or(' ').is_uppercase() {
-            // Check if it looks like a known type, otherwise use Default
-            if type_str.contains("Config") || type_str.contains("Args") {
-                format!("{}::default()", type_str)
-            } else {
-                format!("{}::default()", type_str)
-            }
-        } else {
-            // Existing logic for generic types
-            Self::param_value(type_str)
+        // Try smart_param_value for special types
+        let smart_value = Self::smart_param_value(type_str, "");
+        if !smart_value.contains("Default::default") {
+            return smart_value;
         }
+
+        // Delegate to base param_value for common types
+        Self::param_value(type_str)
     }
 
     /// Generate smart parameter values with better type handling
@@ -386,33 +431,22 @@ impl RustGenerator {
     }
 
     /// Generate enhanced assertions with better type handling
+    /// This enhances the base generate_assertions with more detailed messages
     fn generate_assertions_enhanced(return_type: &str, _config: &Config) -> String {
         let t = return_type.trim();
 
-        if t == "()" {
-            "        // Function returns unit type - no assertion needed".to_string()
-        } else if t.starts_with("Result<") {
-            "        assert!(result.is_ok(), \"Function should succeed\");".to_string()
-        } else if t.starts_with("Option<") {
-            "        assert!(result.is_some(), \"Function should return Some value\");".to_string()
-        } else if t.starts_with("Vec<") {
-            "        assert!(!result.is_empty(), \"Function should return non-empty vector\");".to_string()
-        } else if ["String", "&str"].contains(&t) {
-            "        assert!(!result.is_empty(), \"Function should return non-empty string\");".to_string()
-        } else if ["i32", "i64", "u32", "u64", "usize"].iter().any(|&num| t.contains(num)) {
-            "        assert!(result >= 0, \"Function should return non-negative number\");".to_string()
-        } else if ["f32", "f64"].iter().any(|&num| t.contains(num)) {
-            "        assert!(!result.is_nan(), \"Function should return valid float\");".to_string()
-        } else if t == "bool" {
-            "        // Boolean result - add specific assertion based on expected behavior".to_string()
-        } else if t.contains("PathBuf") || t.contains("&Path") {
-            "        assert!(result.exists(), \"Function should return existing path\");".to_string()
+        // Handle type-specific enhanced assertions
+        if t.contains("PathBuf") || t.contains("&Path") {
+            "        assert!(result.exists(), \"Function should return existing path\");"
+                .to_string()
         } else if t.contains("Uuid") {
             "        assert!(!result.is_nil(), \"Function should return valid UUID\");".to_string()
         } else if t.contains("Url") {
-            "        assert!(result.scheme() != \"\", \"Function should return valid URL\");".to_string()
+            "        assert!(result.scheme() != \"\", \"Function should return valid URL\");"
+                .to_string()
         } else {
-            format!("        // TODO: Add appropriate assertion for type: {}", t)
+            // Delegate to base implementation for common types
+            Self::generate_assertions(t)
         }
     }
 
@@ -430,12 +464,20 @@ impl RustGenerator {
             "        assert!(!result.is_empty());".to_string()
         } else if ["String", "&str"].contains(&t) {
             "        assert!(!result.is_empty());".to_string()
-        } else if ["i32", "i64", "u32", "u64", "usize", "f32", "f64"].iter().any(|&num| t.contains(num)) {
+        } else if ["i32", "i64", "u32", "u64", "usize", "f32", "f64"]
+            .iter()
+            .any(|&num| t.contains(num))
+        {
             "        assert!(result >= 0); // Basic check for numeric types".to_string()
         } else if t == "bool" {
             "        // Boolean result - check specific logic here".to_string()
         } else {
-            format!("        // TODO: Add appropriate assertion for {}", t.replace(" < ", "<").replace(" > ", ">").replace(" , ", ", "))
+            format!(
+                "        // TODO: Add appropriate assertion for {}",
+                t.replace(" < ", "<")
+                    .replace(" > ", ">")
+                    .replace(" , ", ", ")
+            )
         }
     }
 
@@ -445,7 +487,10 @@ impl RustGenerator {
 
         // Remove leading ./ or src/
         if path.starts_with("./src/") {
-            path = path.strip_prefix("./src/").unwrap_or(&path[5..]).to_string();
+            path = path
+                .strip_prefix("./src/")
+                .unwrap_or(&path[5..])
+                .to_string();
         } else if path.starts_with("src/") {
             path = path.strip_prefix("src/").unwrap().to_string();
         }
@@ -475,9 +520,6 @@ impl RustGenerator {
             format!("{}_tests.rs", module_path.replace("::", "_"))
         }
     }
-
-
-
 
     /// Generate a value expression for a given type string.
     /// Produces valid Rust expressions in most common cases.
@@ -547,8 +589,4 @@ impl RustGenerator {
             None
         }
     }
-
-
-
-
 }

@@ -11,6 +11,5 @@
 //! - [`generator`]: Generates test code from analyzed data
 
 pub mod analyzer;
-pub mod models;
 pub mod generator;
-pub mod v_lang;
+pub mod models;

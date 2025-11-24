@@ -127,12 +127,12 @@ pub fn generate_tests_for_project_with_config(
             }
 
             let content = fs::read_to_string(path)?;
-            let functions = core::v_lang::VParser::parse_function_signatures(&content);
+            let functions = core::generator::v_gen::VParser::parse_function_signatures(&content);
 
             if !functions.is_empty() {
                 let mut test_content = String::from("module main\n\n");
                 for func in functions {
-                    test_content.push_str(&core::v_lang::VParser::generate_test(&func));
+                    test_content.push_str(&core::generator::v_gen::VParser::generate_test(&func));
                     test_content.push('\n');
                 }
 
